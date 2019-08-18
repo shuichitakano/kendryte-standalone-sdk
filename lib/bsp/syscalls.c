@@ -225,10 +225,24 @@ sys_file_fstat(int file, struct stat *st)
     return -ENOSYS;
 }
 
+long __attribute__((weak))
+sys_file_stat(const char *name, struct stat *st)
+{
+    LOGV(TAG, "file_stat(%s, %p)", name, st);
+    return -ENOSYS;
+}
+
 int __attribute__((weak))
 sys_file_close(int file)
 {
     LOGV(TAG, "file_close(%d)", file);
+    return -ENOSYS;
+}
+
+ssize_t __attribute__((weak))
+sys_file_lseek(int file, ssize_t ptr, int dir)
+{
+    LOGV(TAG, "file_lseek(%d, %d, %d)", file, (int)ptr, dir);
     return -ENOSYS;
 }
 
@@ -354,7 +368,7 @@ static int sys_fstat(int file, struct stat *st)
      */
 
     //    UNUSED(file);
-    if(STDIN_FILENO == file || STDOUT_FILENO == file)
+    if(STDIN_FILENO == file || STDOUT_FILENO == file || STDERR_FILENO == file)
     {
         if(st != NULL)
             memset(st, 0, sizeof(struct stat));
@@ -370,6 +384,12 @@ static int sys_fstat(int file, struct stat *st)
     }
 
     return res;
+}
+
+static long
+sys_stat(const char *name, struct stat *st)
+{
+    return sys_file_stat(name, st);
 }
 
 static int sys_close(int file)
@@ -389,7 +409,7 @@ static int sys_close(int file)
      */
 
     //    UNUSED(file);
-    if(STDIN_FILENO == file || STDOUT_FILENO == file)
+    if(STDIN_FILENO == file || STDOUT_FILENO == file || STDERR_FILENO == file)
     {
         /* Return the result */
         res = 0;
@@ -398,6 +418,16 @@ static int sys_close(int file)
         res = sys_file_close(file);
     }
     return res;
+}
+
+static ssize_t sys_lseek(int file, ssize_t ptr, int dir)
+{
+    if(STDIN_FILENO == file || STDOUT_FILENO == file || STDERR_FILENO == file)
+    {
+        return -EBADF;
+    }
+
+    return sys_file_lseek(file, ptr, dir);
 }
 
 static int sys_gettimeofday(struct timeval *tp, void *tzp)
@@ -443,6 +473,8 @@ handle_ecall(uintptr_t cause, uintptr_t epc, uintptr_t regs[32], uintptr_t fregs
         SYS_ID_CLOSE,
         SYS_ID_GETTIMEOFDAY,
         SYS_ID_OPEN,
+        SYS_ID_LSEEK,
+        SYS_ID_STAT,
         SYS_ID_MAX
     };
 
@@ -458,6 +490,8 @@ handle_ecall(uintptr_t cause, uintptr_t epc, uintptr_t regs[32], uintptr_t fregs
             [SYS_ID_CLOSE] = (void *)sys_close,
             [SYS_ID_GETTIMEOFDAY] = (void *)sys_gettimeofday,
             [SYS_ID_OPEN] = (void *)sys_open,
+            [SYS_ID_LSEEK] = (void *)sys_lseek,
+            [SYS_ID_STAT] = (void *)sys_stat,
         };
 
 #if defined(__GNUC__)
@@ -479,14 +513,11 @@ handle_ecall(uintptr_t cause, uintptr_t epc, uintptr_t regs[32], uintptr_t fregs
             [0xFF &
                 SYS_write] = SYS_ID_WRITE,
             [0xFF &
-                //                SYS_open] = SYS_ID_NOSYS,
                 SYS_open] = SYS_ID_OPEN,
             [0xFF &
-                SYS_lseek] = SYS_ID_NOSYS,
+                SYS_lseek] = SYS_ID_LSEEK,
             [0xFF &
                 SYS_close] = SYS_ID_CLOSE,
-            [0xFF &
-                SYS_lseek] = SYS_ID_NOSYS,
             [0xFF &
                 SYS_brk] = SYS_ID_BRK,
             [0xFF &
@@ -500,7 +531,7 @@ handle_ecall(uintptr_t cause, uintptr_t epc, uintptr_t regs[32], uintptr_t fregs
             [0xFF &
                 SYS_getcwd] = SYS_ID_NOSYS,
             [0xFF &
-                SYS_stat] = SYS_ID_NOSYS,
+                SYS_stat] = SYS_ID_STAT,
             [0xFF &
                 SYS_fstat] = SYS_ID_FSTAT,
             [0xFF &
