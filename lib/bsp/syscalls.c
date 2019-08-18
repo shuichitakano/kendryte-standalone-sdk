@@ -197,6 +197,46 @@ static size_t sys_brk(size_t pos)
     return (size_t)res;
 }
 
+int __attribute__((weak))
+sys_file_open(const char *name, int flags, int mode)
+{
+    LOGV(TAG, "file_open(%s, %d, %d)", name, flags, mode);
+    return -ENOSYS;
+}
+
+ssize_t __attribute__((weak))
+sys_file_write(int file, const void *ptr, size_t len)
+{
+    LOGV(TAG, "file_write(%d, %p, %zd)", file, ptr, len);
+    return -ENOSYS;
+}
+
+ssize_t __attribute__((weak))
+sys_file_read(int file, void *ptr, size_t len)
+{
+    LOGV(TAG, "file_read(%d, %p, %zd)", file, ptr, len);
+    return -ENOSYS;
+}
+
+int __attribute__((weak))
+sys_file_fstat(int file, struct stat *st)
+{
+    LOGV(TAG, "file_fstat(%d, %p)", file, st);
+    return -ENOSYS;
+}
+
+int __attribute__((weak))
+sys_file_close(int file)
+{
+    LOGV(TAG, "file_close(%d)", file);
+    return -ENOSYS;
+}
+
+static int sys_open(const char *name, int flags, int mode)
+{
+    return sys_file_open(name, flags, mode);
+}
+
 static ssize_t sys_write(int file, const void *ptr, size_t len)
 {
     ssize_t res = -EBADF;
@@ -228,8 +268,8 @@ static ssize_t sys_write(int file, const void *ptr, size_t len)
         res = len;
     } else
     {
-        /* Not support yet */
-        res = -ENOSYS;
+        res = sys_file_write(file, ptr, len);
+        //        res = -ENOSYS;
     }
 
     return res;
@@ -290,8 +330,8 @@ static ssize_t sys_read(int file, void *ptr, size_t len)
         res = actual_length;
     } else
     {
-        /* Not support yet */
-        res = -ENOSYS;
+        res = sys_file_read(file, ptr, len);
+        //        res = -ENOSYS;
     }
     return res;
 }
@@ -299,7 +339,6 @@ static ssize_t sys_read(int file, void *ptr, size_t len)
 static int sys_fstat(int file, struct stat *st)
 {
     int res = -EBADF;
-
     /**
      * Status of an open file. The sys/stat.h header file required
      * is
@@ -314,16 +353,21 @@ static int sys_fstat(int file, struct stat *st)
      * the error.
      */
 
-    UNUSED(file);
-
-    if(st != NULL)
-        memset(st, 0, sizeof(struct stat));
-    /* Return the result */
-    res = -ENOSYS;
-    /**
+    //    UNUSED(file);
+    if(STDIN_FILENO == file || STDOUT_FILENO == file)
+    {
+        if(st != NULL)
+            memset(st, 0, sizeof(struct stat));
+        /* Return the result */
+        res = -ENOSYS;
+        /**
      * Note: This value will return to syscall wrapper, syscall
      * wrapper will set errno to ENOSYS and return -1
      */
+    } else
+    {
+        res = sys_file_fstat(file, st);
+    }
 
     return res;
 }
@@ -344,9 +388,15 @@ static int sys_close(int file)
      * the error.
      */
 
-    UNUSED(file);
-    /* Return the result */
-    res = 0;
+    //    UNUSED(file);
+    if(STDIN_FILENO == file || STDOUT_FILENO == file)
+    {
+        /* Return the result */
+        res = 0;
+    } else
+    {
+        res = sys_file_close(file);
+    }
     return res;
 }
 
@@ -392,6 +442,7 @@ handle_ecall(uintptr_t cause, uintptr_t epc, uintptr_t regs[32], uintptr_t fregs
         SYS_ID_FSTAT,
         SYS_ID_CLOSE,
         SYS_ID_GETTIMEOFDAY,
+        SYS_ID_OPEN,
         SYS_ID_MAX
     };
 
@@ -406,6 +457,7 @@ handle_ecall(uintptr_t cause, uintptr_t epc, uintptr_t regs[32], uintptr_t fregs
             [SYS_ID_FSTAT] = (void *)sys_fstat,
             [SYS_ID_CLOSE] = (void *)sys_close,
             [SYS_ID_GETTIMEOFDAY] = (void *)sys_gettimeofday,
+            [SYS_ID_OPEN] = (void *)sys_open,
         };
 
 #if defined(__GNUC__)
@@ -427,9 +479,10 @@ handle_ecall(uintptr_t cause, uintptr_t epc, uintptr_t regs[32], uintptr_t fregs
             [0xFF &
                 SYS_write] = SYS_ID_WRITE,
             [0xFF &
-                SYS_open] = SYS_ID_NOSYS,
+                //                SYS_open] = SYS_ID_NOSYS,
+                SYS_open] = SYS_ID_OPEN,
             [0xFF &
-                SYS_openat] = SYS_ID_NOSYS,
+                SYS_lseek] = SYS_ID_NOSYS,
             [0xFF &
                 SYS_close] = SYS_ID_CLOSE,
             [0xFF &
