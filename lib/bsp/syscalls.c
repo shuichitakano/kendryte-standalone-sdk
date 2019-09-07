@@ -225,7 +225,7 @@ sys_file_fstat(int file, struct stat *st)
     return -ENOSYS;
 }
 
-long __attribute__((weak))
+int __attribute__((weak))
 sys_file_stat(const char *name, struct stat *st)
 {
     LOGV(TAG, "file_stat(%s, %p)", name, st);
@@ -350,7 +350,44 @@ static ssize_t sys_read(int file, void *ptr, size_t len)
     return res;
 }
 
-static int sys_fstat(int file, struct stat *st)
+struct kernel_stat
+{
+    unsigned long long st_dev;
+    unsigned long long st_ino;
+    unsigned int st_mode;
+    unsigned int st_nlink;
+    unsigned int st_uid;
+    unsigned int st_gid;
+    unsigned long long st_rdev;
+    unsigned long long __pad1;
+    long long st_size;
+    int st_blksize;
+    int __pad2;
+    long long st_blocks;
+    struct timespec st_atim;
+    struct timespec st_mtim;
+    struct timespec st_ctim;
+    int __glibc_reserved[2];
+};
+
+void conv_stat(struct kernel_stat *dst, const struct stat *src)
+{
+    dst->st_dev = src->st_dev;
+    dst->st_ino = src->st_ino;
+    dst->st_mode = src->st_mode;
+    dst->st_nlink = src->st_nlink;
+    dst->st_uid = src->st_uid;
+    dst->st_gid = src->st_gid;
+    dst->st_rdev = src->st_rdev;
+    dst->st_size = src->st_size;
+    dst->st_blocks = src->st_blocks;
+    dst->st_blksize = src->st_blksize;
+    dst->st_atim.tv_sec = src->st_atime;
+    dst->st_mtim.tv_sec = src->st_mtime;
+    dst->st_ctim.tv_sec = src->st_ctime;
+}
+
+static int sys_fstat(int file, struct kernel_stat *st)
 {
     int res = -EBADF;
     /**
@@ -358,7 +395,7 @@ static int sys_fstat(int file, struct stat *st)
      * is
      * distributed in the include subdirectory for this C library.
      *
-     * int fstat(int file, struct stat* st)
+     * int fstat(int file, struct kernel_stat* st)
      *
      * IN : regs[10] = file, regs[11] = st
      * OUT: regs[10] = Upon successful completion, 0 shall be
@@ -371,7 +408,7 @@ static int sys_fstat(int file, struct stat *st)
     if(STDIN_FILENO == file || STDOUT_FILENO == file || STDERR_FILENO == file)
     {
         if(st != NULL)
-            memset(st, 0, sizeof(struct stat));
+            memset(st, 0, sizeof(*st));
         /* Return the result */
         res = -ENOSYS;
         /**
@@ -380,16 +417,21 @@ static int sys_fstat(int file, struct stat *st)
      */
     } else
     {
-        res = sys_file_fstat(file, st);
+        struct stat s;
+        res = sys_file_fstat(file, &s);
+        conv_stat(st, &s);
     }
 
     return res;
 }
 
-static long
-sys_stat(const char *name, struct stat *st)
+static int
+sys_stat(const char *name, struct kernel_stat *st)
 {
-    return sys_file_stat(name, st);
+    struct stat s;
+    int r = sys_file_stat(name, &s);
+    conv_stat(st, &s);
+    return r;
 }
 
 static int sys_close(int file)
